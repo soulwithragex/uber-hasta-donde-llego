@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Uber Chile — ¿Hasta dónde llego?</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+:root{
+  --bg:#07070e;
+  --s1:#0d0d1c;
+  --s2:#111128;
+  --border:#1c1c38;
+  --border2:#252548;
+  --blue:#1677ff;
+  --blue-dim:#1145a8;
+  --green:#00e096;
+  --green-dim:#00573a;
+  --red:#ff4d6a;
+  --gold:#fbbf24;
+  --text:#e8eaf6;
+  --muted:#6b7280;
+  --mono:'DM Mono',monospace;
+  --sans:'Syne',sans-serif;
+}
+
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+
+/* GRAIN */
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9000;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E");
+  opacity:.5}
+
+/* SCROLLBAR */
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+.app{max-width:480px;margin:0 auto;padding:0 0 80px}
+
+/* ── HEADER ── */
+.header{
+  padding:32px 20px 24px;
+  border-bottom:1px solid var(--border);
+  position:relative;
+  overflow:hidden;
+}
+.header::before{
+  content:'';position:absolute;top:-60px;right:-40px;
+  width:220px;height:220px;border-radius:50%;
+  background:radial-gradient(circle,rgba(22,119,255,.18) 0%,transparent 70%);
+  pointer-events:none;
+}
+.uber-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  background:var(--blue);color:#fff;
+  font-family:var(--mono);font-size:10px;font-weight:500;
+  letter-spacing:1px;padding:4px 10px;border-radius:4px;
+  margin-bottom:14px;
+}
+.uber-badge svg{width:14px;height:14px;fill:currentColor}
+h1{font-size:clamp(30px,8vw,44px);font-weight:900;line-height:1;letter-spacing:-1.5px;margin-bottom:6px}
+h1 .hl{color:var(--blue)}
+.header-sub{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.5px}
+
+/* ── SECTION ── */
+.section{padding:20px 20px 0}
+.sec-title{
+  font-family:var(--mono);font-size:9px;letter-spacing:3px;
+  text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;gap:8px;margin-bottom:12px;
+}
+.sec-title::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── GPS CARD ── */
+.gps-card{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:14px;padding:16px;
+  display:flex;flex-direction:column;gap:12px;
+}
+.gps-row{display:flex;align-items:center;gap:12px}
+.gps-pulse{
+  width:42px;height:42px;border-radius:10px;flex-shrink:0;
+  background:var(--s2);border:1px solid var(--border2);
+  display:flex;align-items:center;justify-content:center;font-size:20px;
+  position:relative;
+}
+.gps-pulse.active::after{
+  content:'';position:absolute;inset:-3px;border-radius:13px;
+  border:1.5px solid var(--green);
+  animation:ringPulse 2s ease infinite;
+}
+.gps-text{flex:1}
+.gps-label{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:2px}
+.gps-val{font-size:13px;font-weight:700;color:var(--text);word-break:break-all}
+.gps-acc{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:2px}
+
+/* STATUS DOT */
+.dot{
+  width:9px;height:9px;border-radius:50%;background:var(--muted);flex-shrink:0;
+  transition:background .3s,box-shadow .3s;
+}
+.dot.loading{background:var(--gold);animation:dotBlink .9s infinite}
+.dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.error{background:var(--red)}
+
+/* TOGGLE GPS */
+.toggle-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding-top:4px;border-top:1px solid var(--border);
+}
+.toggle-label{font-family:var(--mono);font-size:11px;color:var(--muted)}
+.toggle-wrap{display:flex;align-items:center;gap:8px}
+.toggle-state{font-family:var(--mono);font-size:10px;font-weight:500}
+.toggle-state.on{color:var(--green)}
+.toggle-state.off{color:var(--red)}
+
+/* TOGGLE SWITCH */
+.switch{position:relative;display:inline-block;width:44px;height:24px;cursor:pointer}
+.switch input{opacity:0;width:0;height:0}
+.slider{
+  position:absolute;inset:0;background:var(--border2);
+  border-radius:24px;transition:.3s;
+}
+.slider::before{
+  content:'';position:absolute;height:18px;width:18px;
+  left:3px;bottom:3px;background:#fff;border-radius:50%;
+  transition:.3s;
+}
+input:checked + .slider{background:var(--green)}
+input:checked + .slider::before{transform:translateX(20px)}
+
+/* RETRY BTN */
+.btn-retry{
+  background:var(--s2);border:1px solid var(--border2);color:var(--muted);
+  font-family:var(--mono);font-size:10px;letter-spacing:1px;
+  padding:8px 14px;border-radius:8px;cursor:pointer;
+  transition:all .2s;align-self:flex-start;
+}
+.btn-retry:hover{border-color:var(--blue);color:var(--blue)}
+
+/* ── UBER SERVICES ── */
+.services-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.service-card{
+  background:var(--s1);border:1.5px solid var(--border);
+  border-radius:12px;padding:14px 12px;cursor:pointer;
+  transition:all .2s;position:relative;overflow:hidden;
+}
+.service-card::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,var(--blue),.08,transparent);
+  opacity:0;transition:opacity .2s;
+}
+.service-card:hover{border-color:var(--border2)}
+.service-card.active{border-color:var(--blue);background:rgba(22,119,255,.08)}
+.service-card.active::before{opacity:1}
+.service-icon{font-size:22px;margin-bottom:6px}
+.service-name{font-size:14px;font-weight:800;margin-bottom:2px}
+.service-tag{
+  font-family:var(--mono);font-size:9px;color:var(--muted);
+  letter-spacing:.5px;margin-bottom:8px;
+}
+.service-rates{
+  font-family:var(--mono);font-size:10px;color:var(--muted);
+  line-height:1.7;border-top:1px solid var(--border);padding-top:8px;
+}
+.service-rates span{color:var(--text);font-weight:500}
+.active-badge{
+  position:absolute;top:10px;right:10px;
+  background:var(--blue);color:#fff;
+  font-family:var(--mono);font-size:8px;letter-spacing:1px;
+  padding:2px 6px;border-radius:4px;
+}
+
+/* ── PRESUPUESTO ── */
+.budget-wrap{
+  background:var(--s1);border:1.5px solid var(--border);
+  border-radius:14px;overflow:hidden;
+}
+.budget-inner{display:flex;align-items:stretch}
+.budget-prefix{
+  background:var(--blue);color:#fff;
+  font-family:var(--mono);font-size:12px;font-weight:500;
+  padding:0 16px;display:flex;align-items:center;
+  letter-spacing:1px;flex-shrink:0;
+}
+.budget-input{
+  flex:1;background:transparent;border:none;outline:none;
+  font-family:var(--sans);font-size:28px;font-weight:900;
+  color:var(--text);padding:14px 14px;
+  width:100%;letter-spacing:-1px;
+}
+.budget-input::placeholder{color:var(--border2)}
+.budget-input::-webkit-inner-spin-button{-webkit-appearance:none}
+.quick-row{
+  display:flex;gap:6px;padding:10px 12px;
+  border-top:1px solid var(--border);flex-wrap:wrap;
+}
+.qbtn{
+  font-family:var(--mono);font-size:10px;
+  padding:5px 11px;border-radius:20px;
+  border:1px solid var(--border2);background:transparent;
+  color:var(--muted);cursor:pointer;transition:all .15s;letter-spacing:.3px;
+}
+.qbtn:hover{border-color:var(--blue);color:var(--blue)}
+.qbtn.active{background:var(--blue);border-color:var(--blue);color:#fff}
+
+/* NOTA TARIFAS */
+.tariff-note{
+  background:rgba(22,119,255,.06);border:1px solid rgba(22,119,255,.2);
+  border-radius:10px;padding:10px 14px;margin-top:10px;
+  font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.6;
+}
+.tariff-note strong{color:var(--blue)}
+
+/* ── CALCULAR ── */
+.calc-wrap{padding:20px}
+.btn-calc{
+  width:100%;padding:18px;
+  background:linear-gradient(135deg,var(--blue),#0f52c8);
+  color:#fff;font-family:var(--sans);font-size:17px;font-weight:800;
+  border:none;border-radius:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:space-between;
+  transition:all .2s;letter-spacing:-.3px;
+  box-shadow:0 8px 32px rgba(22,119,255,.3);
+}
+.btn-calc:hover{transform:translateY(-1px);box-shadow:0 12px 40px rgba(22,119,255,.4)}
+.btn-calc:active{transform:scale(.98)}
+.btn-calc:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+.btn-arrow{font-size:22px;transition:transform .2s}
+.btn-calc:hover .btn-arrow{transform:translateX(5px)}
+
+/* ── RESULTADO ── */
+#resultado{display:none;padding:0 20px;animation:riseUp .45s ease both}
+
+.result-hero{
+  background:linear-gradient(135deg,var(--blue-dim),#0a2060);
+  border:1px solid var(--blue);
+  border-radius:16px;padding:28px 24px 22px;
+  text-align:center;margin-bottom:12px;position:relative;overflow:hidden;
+}
+.result-hero::before{
+  content:'';position:absolute;top:-50px;left:50%;transform:translateX(-50%);
+  width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,rgba(22,119,255,.25),transparent 70%);
+  pointer-events:none;
+}
+.res-tag{font-family:var(--mono);font-size:9px;letter-spacing:3px;text-transform:uppercase;color:rgba(255,255,255,.4);margin-bottom:8px}
+.res-km{
+  font-size:clamp(64px,18vw,90px);font-weight:900;
+  line-height:1;letter-spacing:-4px;color:#fff;
+  text-shadow:0 0 40px rgba(22,119,255,.6);
+}
+.res-unit{font-family:var(--mono);font-size:11px;letter-spacing:3px;color:rgba(255,255,255,.4);margin-top:4px;text-transform:uppercase}
+.res-desc{font-size:13px;font-weight:400;color:rgba(255,255,255,.65);margin-top:10px;line-height:1.5;font-style:italic}
+
+/* STATS */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px}
+.stat{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:10px;padding:12px 10px;text-align:center;
+}
+.stat-val{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--green);margin-bottom:3px}
+.stat-lbl{font-family:var(--mono);font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+
+/* DESGLOSE */
+.desglose{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:12px;padding:14px;margin-bottom:10px;
+}
+.des-row{
+  display:flex;justify-content:space-between;align-items:center;
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  padding:5px 0;border-bottom:1px solid var(--border);
+}
+.des-row:last-child{border-bottom:none;color:var(--text);font-weight:500}
+.des-row span:last-child{color:var(--text)}
+.des-row.total span:last-child{color:var(--green);font-size:13px}
+
+/* MAP */
+#mapWrap{
+  background:var(--s1);border:1px solid var(--border);
+  border-radius:14px;overflow:hidden;margin-bottom:10px;
+}
+.map-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;border-bottom:1px solid var(--border);
+}
+.map-title{font-family:var(--mono);font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.map-dot{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:9px;color:var(--green)}
+.map-dot::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 6px var(--green)}
+#map{height:290px}
+
+.btn-recalc{
+  width:100%;padding:13px;
+  background:transparent;border:1px solid var(--border2);
+  color:var(--muted);font-family:var(--mono);font-size:11px;
+  letter-spacing:2px;text-transform:uppercase;
+  border-radius:10px;cursor:pointer;transition:all .2s;margin-top:4px;
+}
+.btn-recalc:hover{border-color:var(--blue);color:var(--blue)}
+
+/* NOTA GPS IMPORTANTE */
+.gps-note{
+  background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.25);
+  border-radius:10px;padding:12px 14px;margin-top:8px;
+  font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.7;
+}
+.gps-note strong{color:var(--gold);display:block;margin-bottom:3px}
+
+/* ANIMATIONS */
+@keyframes riseUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@keyframes dotBlink{0%,100%{opacity:1}50%{opacity:.2}}
+@keyframes ringPulse{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(1.4)}}
+
+.fade-in{animation:riseUp .4s ease both}
+.d1{animation-delay:.05s}.d2{animation-delay:.1s}.d3{animation-delay:.15s}.d4{animation-delay:.2s}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- HEADER -->
+<div class="header fade-in">
+  <div class="uber-badge">
+    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/></svg>
+    UBER CHILE
+  </div>
+  <h1>¿Hasta dónde<br>llego con <span class="hl">$1.000?</span></h1>
+  <p class="header-sub">Radio exacto · CLP · Santiago y regiones</p>
+</div>
+
+<!-- GPS -->
+<div class="section fade-in d1">
+  <div class="sec-title">Ubicación GPS</div>
+  <div class="gps-card">
+
+    <div class="gps-row">
+      <div class="gps-pulse" id="gpsIcon">📍</div>
+      <div class="gps-text">
+        <div class="gps-label" id="gpsLabel">Iniciando GPS…</div>
+        <div class="gps-val" id="gpsVal">—</div>
+        <div class="gps-acc" id="gpsAcc"></div>
+      </div>
+      <div class="dot loading" id="gpsDot"></div>
+    </div>
+
+    <div class="toggle-row">
+      <span class="toggle-label">Ubicación en tiempo real</span>
+      <div class="toggle-wrap">
+        <span class="toggle-state on" id="toggleState">ON</span>
+        <label class="switch">
+          <input type="checkbox" id="gpsToggle" checked onchange="onToggleGPS(this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <button class="btn-retry" id="btnRetry" onclick="iniciarGPS()" style="display:none">
+      ↻ Reintentar GPS
+    </button>
+
+  </div>
+
+  <div class="gps-note">
+    <strong>⚠️ Importante — Chrome Android</strong>
+    Si abriste este archivo desde el explorador de archivos (file://) el GPS puede estar bloqueado.
+    <br>Para activarlo: abre Chrome → pega la ruta del archivo → o súbelo a
+    <strong style="color:var(--gold)">GitHub Pages / Google Drive → Abrir con → Chrome</strong>
+  </div>
+</div>
+
+<!-- SERVICIOS UBER -->
+<div class="section fade-in d2">
+  <div class="sec-title">Servicio Uber</div>
+  <div class="services-grid" id="servicesGrid">
+
+    <div class="service-card active" onclick="selectService(this,'UberX',450,220,'Económico')" id="s-uberx">
+      <div class="active-badge">✓ ACTIVO</div>
+      <div class="service-icon">🚗</div>
+      <div class="service-name">UberX</div>
+      <div class="service-tag">ECONÓMICO · MÁS COMÚN</div>
+      <div class="service-rates">
+        Base <span>$450</span><br>
+        Por km <span>$220</span><br>
+        Mínimo <span>$1.200</span>
+      </div>
+    </div>
+
+    <div class="service-card" onclick="selectService(this,'Uber Comfort',800,320,'Confort')" id="s-comfort">
+      <div class="service-icon">🚙</div>
+      <div class="service-name">Comfort</div>
+      <div class="service-tag">SUPERIOR · MÁS ESPACIO</div>
+      <div class="service-rates">
+        Base <span>$800</span><br>
+        Por km <span>$320</span><br>
+        Mínimo <span>$2.000</span>
+      </div>
+    </div>
+
+    <div class="service-card" onclick="selectService(this,'Uber Black',1200,600,'Premium')" id="s-black">
+      <div class="service-icon">🖤</div>
+      <div class="service-name">Uber Black</div>
+      <div class="service-tag">PREMIUM · LUJO</div>
+      <div class="service-rates">
+        Base <span>$1.200</span><br>
+        Por km <span>$600</span><br>
+        Mínimo <span>$3.500</span>
+      </div>
+    </div>
+
+    <div class="service-card" onclick="selectService(this,'Uber XL',900,400,'Grupal')" id="s-xl">
+      <div class="service-icon">🚐</div>
+      <div class="service-name">Uber XL</div>
+      <div class="service-tag">GRUPAL · HASTA 6 PAX</div>
+      <div class="service-rates">
+        Base <span>$900</span><br>
+        Por km <span>$400</span><br>
+        Mínimo <span>$2.500</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="tariff-note">
+    <strong>Tarifas base Santiago · Región Metropolitana · 2025–2026</strong>
+    UberX: base $450 + $220/km (fuente: ubertarifa.com, Santiago RM).
+    Precios dinámicos pueden aplicar en hora punta. Tarifa mínima protege el viaje corto.
+  </div>
+</div>
+
+<!-- PRESUPUESTO -->
+<div class="section fade-in d3">
+  <div class="sec-title">Presupuesto</div>
+  <div class="budget-wrap">
+    <div class="budget-inner">
+      <div class="budget-prefix">CLP $</div>
+      <input type="number" class="budget-input" id="budgetInput"
+             value="1000" min="500" max="999999" placeholder="1000"
+             oninput="syncQuick()">
+    </div>
+    <div class="quick-row">
+      <button class="qbtn active" onclick="setBudget(1000)">$1.000</button>
+      <button class="qbtn" onclick="setBudget(2000)">$2.000</button>
+      <button class="qbtn" onclick="setBudget(5000)">$5.000</button>
+      <button class="qbtn" onclick="setBudget(10000)">$10.000</button>
+      <button class="qbtn" onclick="setBudget(20000)">$20.000</button>
+    </div>
+  </div>
+</div>
+
+<!-- CALCULAR -->
+<div class="calc-wrap fade-in d4">
+  <button class="btn-calc" id="btnCalc" onclick="calcular()" disabled>
+    <span>Calcular mi radio</span>
+    <span class="btn-arrow">→</span>
+  </button>
+</div>
+
+<!-- RESULTADO -->
+<div id="resultado">
+
+  <div class="result-hero">
+    <div class="res-tag">Radio máximo de alcance</div>
+    <div class="res-km" id="resKm">0</div>
+    <div class="res-unit">kilómetros</div>
+    <div class="res-desc" id="resDesc"></div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat">
+      <div class="stat-val" id="sBudget">—</div>
+      <div class="stat-lbl">Presupuesto</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="sServicio">—</div>
+      <div class="stat-lbl">Servicio</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="sTarifa">—</div>
+      <div class="stat-lbl">$/km</div>
+    </div>
+  </div>
+
+  <div class="desglose" id="desglose"></div>
+
+  <div id="mapWrap">
+    <div class="map-header">
+      <span class="map-title">Mapa de alcance</span>
+      <span class="map-dot" id="mapCoordLabel">—</span>
+    </div>
+    <div id="map"></div>
+  </div>
+
+  <button class="btn-recalc" onclick="resetResult()">← Recalcular</button>
+</div>
+
+</div><!-- /app -->
+
+<script>
+/* ═══════════════ STATE ═══════════════ */
+let lat = null, lng = null, gpsActive = true;
+let watchId = null;
+let leafMap = null, leafCircle = null, leafMarker = null;
+let activeService = { nombre:'UberX', base:450, porKm:220, tipo:'Económico' };
+
+/* ═══════════════ GPS ═══════════════ */
+function iniciarGPS() {
+  if (!gpsActive) return;
+  if (!navigator.geolocation) {
+    setGPSUI('error','GPS no soportado en este navegador', null, null);
+    return;
+  }
+  setGPSUI('loading','Buscando señal GPS…', null, null);
+  document.getElementById('btnRetry').style.display = 'none';
+
+  // Usar getCurrentPosition primero (más rápido)
+  navigator.geolocation.getCurrentPosition(onGPSOk, onGPSFail, {
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 0
+  });
+
+  // Luego watchPosition para actualización continua
+  if (watchId !== null) { navigator.geolocation.clearWatch(watchId); }
+  watchId = navigator.geolocation.watchPosition(onGPSOk, ()=>{}, {
+    enableHighAccuracy: true,
+    maximumAge: 5000
+  });
+}
+
+function onGPSOk(pos) {
+  lat = pos.coords.latitude;
+  lng = pos.coords.longitude;
+  const acc = Math.round(pos.coords.accuracy);
+  setGPSUI('ok',
+    'Señal GPS obtenida · Chile',
+    `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+    `Precisión: ±${acc} m`
+  );
+  document.getElementById('btnCalc').disabled = false;
+  document.getElementById('gpsIcon').classList.add('active');
+
+  // Actualizar mapa si ya estaba abierto
+  if (leafMarker) {
+    leafMarker.setLatLng([lat, lng]);
+    leafMap.panTo([lat, lng]);
+  }
+}
+
+function onGPSFail(err) {
+  let msg = 'Error al obtener GPS';
+  if (err.code === 1) msg = 'Permiso denegado — actívalo en Chrome';
+  if (err.code === 2) msg = 'Señal no disponible';
+  if (err.code === 3) msg = 'Tiempo agotado';
+  setGPSUI('error', msg, null, null);
+  document.getElementById('gpsIcon').textContent = '❌';
+  document.getElementById('gpsIcon').classList.remove('active');
+  document.getElementById('btnRetry').style.display = 'block';
+}
+
+function setGPSUI(type, label, val, acc) {
+  document.getElementById('gpsDot').className = `dot ${type}`;
+  document.getElementById('gpsLabel').textContent = label;
+  document.getElementById('gpsVal').textContent  = val  || '—';
+  document.getElementById('gpsAcc').textContent  = acc  || '';
+}
+
+/* ═══════════════ TOGGLE GPS ═══════════════ */
+function onToggleGPS(checked) {
+  gpsActive = checked;
+  const stateEl = document.getElementById('toggleState');
+  stateEl.textContent = checked ? 'ON' : 'OFF';
+  stateEl.className = 'toggle-state ' + (checked ? 'on' : 'off');
+
+  if (!checked) {
+    // Detener watch
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+    }
+    setGPSUI('error', 'Ubicación desactivada', lat ? `${lat.toFixed(6)}, ${lng.toFixed(6)}` : null, null);
+    document.getElementById('gpsIcon').classList.remove('active');
+  } else {
+    // Reactivar
+    lat = null; lng = null;
+    document.getElementById('btnCalc').disabled = true;
+    iniciarGPS();
+  }
+}
+
+/* ═══════════════ SERVICIOS ═══════════════ */
+function selectService(el, nombre, base, porKm, tipo) {
+  document.querySelectorAll('.service-card').forEach(c => {
+    c.classList.remove('active');
+    const b = c.querySelector('.active-badge');
+    if (b) b.remove();
+  });
+  el.classList.add('active');
+  const badge = document.createElement('div');
+  badge.className = 'active-badge';
+  badge.textContent = '✓ ACTIVO';
+  el.appendChild(badge);
+  activeService = { nombre, base, porKm, tipo };
+}
+
+/* ═══════════════ PRESUPUESTO ═══════════════ */
+function setBudget(val) {
+  document.getElementById('budgetInput').value = val;
+  syncQuick();
+}
+
+function syncQuick() {
+  const val = parseInt(document.getElementById('budgetInput').value);
+  document.querySelectorAll('.qbtn').forEach(b => {
+    const bval = parseInt(b.textContent.replace(/\D/g,''));
+    b.classList.toggle('active', bval === val);
+  });
+}
+
+/* ═══════════════ CALCULAR ═══════════════ */
+function calcular() {
+  const presup = parseInt(document.getElementById('budgetInput').value) || 0;
+  if (!presup || presup <= 0) { alert('Ingresa un presupuesto válido.'); return; }
+  if (!lat || !lng) { alert('Espera a obtener la ubicación GPS primero.'); return; }
+
+  const { nombre, base, porKm, tipo } = activeService;
+
+  // Verificar tarifa mínima
+  const tarifaMin = { 'UberX':1200, 'Uber Comfort':2000, 'Uber Black':3500, 'Uber XL':2500 };
+  const minimo = tarifaMin[nombre] || 1200;
+
+  if (presup < minimo) {
+    alert(`Con $${fmtCLP(presup)} no alcanza la tarifa mínima de ${nombre} ($${fmtCLP(minimo)} CLP).`);
+    return;
+  }
+
+  // Fórmula exacta: km = (presupuesto - base) / porKm
+  const disponible = presup - base;
+  const km = disponible / porKm;
+  const metros = km * 1000;
+
+  // Mostrar resultado
+  document.getElementById('resultado').style.display = 'block';
+  document.getElementById('resKm').textContent = km.toFixed(3);
+  document.getElementById('resDesc').textContent =
+    `Con $${fmtCLP(presup)} CLP en ${nombre} puedes llegar hasta ${km.toFixed(2)} km desde tu posición actual en cualquier dirección.`;
+
+  document.getElementById('sBudget').textContent   = `$${fmtCLP(presup)}`;
+  document.getElementById('sServicio').textContent = nombre;
+  document.getElementById('sTarifa').textContent   = `$${fmtCLP(porKm)}`;
+
+  // Desglose
+  document.getElementById('desglose').innerHTML = `
+    <div class="des-row"><span>Presupuesto total</span><span>$${fmtCLP(presup)} CLP</span></div>
+    <div class="des-row"><span>Tarifa base ${nombre}</span><span>− $${fmtCLP(base)} CLP</span></div>
+    <div class="des-row"><span>Disponible para km</span><span>$${fmtCLP(disponible)} CLP</span></div>
+    <div class="des-row"><span>Costo por km</span><span>$${fmtCLP(porKm)} CLP/km</span></div>
+    <div class="des-row total"><span>Radio máximo exacto</span><span>${km.toFixed(4)} km</span></div>
+  `;
+
+  // Coordenadas en el mapa
+  document.getElementById('mapCoordLabel').textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+
+  // Scroll
+  setTimeout(() => document.getElementById('resultado').scrollIntoView({ behavior:'smooth', block:'start' }), 100);
+
+  // MAPA
+  renderMap(lat, lng, metros, km);
+}
+
+/* ═══════════════ MAPA ═══════════════ */
+function renderMap(la, lo, radiusM, km) {
+  if (!leafMap) {
+    leafMap = L.map('map', {
+      zoomControl: true,
+      attributionControl: false,
+      scrollWheelZoom: true,
+      tap: true
+    }).setView([la, lo], 13);
+
+    // Tile oscuro de alta precisión
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      subdomains:'abcd', maxZoom:19, minZoom:5
+    }).addTo(leafMap);
+
+    L.control.scale({ imperial:false, metric:true, position:'bottomright' }).addTo(leafMap);
+  } else {
+    leafMap.setView([la, lo], 13);
+  }
+
+  if (leafCircle) leafMap.removeLayer(leafCircle);
+  if (leafMarker) leafMap.removeLayer(leafMarker);
+
+  // Círculo de alcance
+  leafCircle = L.circle([la, lo], {
+    radius: radiusM,
+    color: '#1677ff',
+    weight: 2,
+    fillColor: '#1677ff',
+    fillOpacity: 0.1,
+    dashArray: '6 5'
+  }).addTo(leafMap);
+
+  // Borde exterior sutil
+  L.circle([la, lo], {
+    radius: radiusM,
+    color: '#00e096',
+    weight: 1,
+    fill: false,
+    opacity: 0.3
+  }).addTo(leafMap);
+
+  // Marcador personalizado
+  const iconHTML = `
+    <div style="
+      width:16px;height:16px;
+      background:#1677ff;
+      border:3px solid #fff;
+      border-radius:50%;
+      box-shadow:0 0 0 3px rgba(22,119,255,.4), 0 0 20px rgba(22,119,255,.6);
+    "></div>`;
+
+  const icon = L.divIcon({ html:iconHTML, className:'', iconSize:[16,16], iconAnchor:[8,8] });
+
+  leafMarker = L.marker([la, lo], { icon })
+    .addTo(leafMap)
+    .bindPopup(`<b style="font-family:monospace">Tu posición</b><br>
+      Radio: <b>${km.toFixed(2)} km</b><br>
+      <span style="font-size:11px;color:#666">${la.toFixed(6)}, ${lo.toFixed(6)}</span>`)
+    .openPopup();
+
+  // Ajustar zoom al círculo
+  leafMap.fitBounds(leafCircle.getBounds(), { padding:[20,20] });
+}
+
+/* ═══════════════ RESET ═══════════════ */
+function resetResult() {
+  document.getElementById('resultado').style.display = 'none';
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
+
+/* ═══════════════ UTILS ═══════════════ */
+function fmtCLP(n) {
+  return n.toLocaleString('es-CL');
+}
+
+/* ═══════════════ INIT ═══════════════ */
+window.addEventListener('load', iniciarGPS);
+</script>
+</body>
+</html>
